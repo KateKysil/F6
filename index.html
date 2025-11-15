@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sudoku</title>
+  <style>
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial; display:flex; gap:20px; padding:20px; }
+    #game { border:1px solid #ddd; padding:12px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.06); }
+    canvas { background:#fff; display:block; }
+    .controls { display:flex; flex-direction:column; gap:8px; }
+    label, select, button { font-size:14px; }
+    button { padding:8px 12px; border-radius:6px; border:1px solid #bbb; background:#f7f7f7; cursor:pointer; }
+    button:active { transform:translateY(1px); }
+    .status { margin-top:8px; min-height:20px; }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <canvas id="sudokuCanvas" width="540" height="540"></canvas>
+    <div class="status" id="status"></div>
+  </div>
+  <div class="controls">
+    <label>Level:
+      <select id="levelSelect"></select>
+    </label>
+    <div style="display:flex;gap:8px;">
+      <button id="newBtn">New Puzzle</button>
+      <button id="hintBtn">Hint</button>
+      <button id="checkBtn">Check</button>
+      <button id="solveBtn">Show Solution</button>
+    </div>
+    <div style="font-size:13px;color:#555">Every level has less and less numbers left to help you</div>
+  </div>
+
+<script>
+
+const canvas = document.getElementById('sudokuCanvas');
+const ctx = canvas.getContext('2d');
+const size = canvas.width;
+const cells = 9;
+const cellSize = size / cells;
+const statusEl = document.getElementById('status');
+let solvedGrid = createEmptyGrid();
+let puzzleGrid = createEmptyGrid();
+let fixed = createEmptyGrid(false);
+let selected = {r: -1, c: -1};
+let level = 1;
+const levelSelect = document.getElementById('levelSelect');
+for (let i=1;i<=10;i++){ const opt=document.createElement('option'); opt.value=i; opt.textContent=`${i}`; levelSelect.appendChild(opt);} 
+levelSelect.value = 1;
+levelSelect.addEventListener('change',()=>{ level = parseInt(levelSelect.value); newPuzzle(); });
+
+document.getElementById('newBtn').addEventListener('click', newPuzzle);
+document.getElementById('hintBtn').addEventListener('click', giveHint);
+document.getElementById('checkBtn').addEventListener('click', checkPuzzle);
+document.getElementById('solveBtn').addEventListener('click', showSolution);
+
+canvas.addEventListener('mousedown', onCanvasClick);
+window.addEventListener('keydown', onKeyDown);
+
+function createEmptyGrid(fill=0){ const g = []; for(let r=0;r<9;r++){ g.push(new Array(9).fill(fill)); } return g; }
+function generateSolvedGrid(){
+  const grid = createEmptyGrid(0);
+  const numbers = [1,2,3,4,5,6,7,8,9];
+  function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } }
+
+  function isSafe(grid,r,c,val){
+    for(let i=0;i<9;i++) if(grid[r][i]===val || grid[i][c]===val) return false;
+    const br = Math.floor(r/3)*3, bc = Math.floor(c/3)*3;
+    for(let i=0;i<3;i++) for(let j=0;j<3;j++) if(grid[br+i][bc+j]===val) return false;
+    return true;
+  }
+
+  function backtrack(pos){
+    if(pos===81) return true;
+    const r = Math.floor(pos/9), c = pos%9;
+    shuffle(numbers);
+    for(const n of numbers){
+      if(isSafe(grid,r,c,n)){
+        grid[r][c]=n;
+        if(backtrack(pos+1)) return true;
+        grid[r][c]=0;
+      }
+    }
+    return false;
+  }
+
+  backtrack(0);
+  return grid;
+}
+
+function makePuzzleFromSolved(solved, level){
+  const puzzle = solved.map(row=>row.slice());
+  const removalsByLevel = {1:30,2:34,3:38,4:42,5:46,6:50,7:54,8:58,9:62,10:66};
+  const removals = removalsByLevel[level] || 46;
+  let attempts = 0;
+  let removed = 0;
+  const cellsList = [];
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++) cellsList.push([r,c]);
+  for(let i=cellsList.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [cellsList[i],cellsList[j]]=[cellsList[j],cellsList[i]]; }
+  let idx = 0;
+  while(removed<removals && idx < cellsList.length){
+    const [r,c] = cellsList[idx++];
+    const backup = puzzle[r][c];
+    puzzle[r][c]=0;
+    removed++;
+  }
+  return puzzle;
+}
+
+function newPuzzle(){
+  statusEl.textContent = 'Generating puzzle...';
+  solvedGrid = generateSolvedGrid();
+  puzzleGrid = makePuzzleFromSolved(solvedGrid, level);
+  for(let r=0;r<9;r++){
+    for(let c=0;c<9;c++){
+      fixed[r][c] = puzzleGrid[r][c] !== 0;
+    }
+  }
+  selected = {r:-1,c:-1};
+  statusEl.textContent = `Level ${level} — good luck!`;
+  draw();
+}
+
+function draw(){
+  ctx.clearRect(0,0,size,size);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,size,size);
+  for(let r=0;r<9;r++){
+    for(let c=0;c<9;c++){
+      const x=c*cellSize, y=r*cellSize;
+      if(selected.r===r && selected.c===c){ ctx.fillStyle='rgba(200,230,255,0.6)'; ctx.fillRect(x,y,cellSize,cellSize); }
+      else if(selected.r===r || selected.c===c){ ctx.fillStyle='rgba(240,245,250,0.6)'; ctx.fillRect(x,y,cellSize,cellSize); }
+    }
+  }
+  for(let i=0;i<=9;i++){
+    ctx.beginPath();
+    ctx.lineWidth = (i%3===0)?3:1;
+    ctx.strokeStyle = '#333';
+    ctx.moveTo(i*cellSize,0); ctx.lineTo(i*cellSize,size);
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,i*cellSize); ctx.lineTo(size,i*cellSize); ctx.stroke();
+  }
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${Math.floor(cellSize*0.55)}px sans-serif`;
+  for(let r=0;r<9;r++){
+    for(let c=0;c<9;c++){
+      const val = puzzleGrid[r][c];
+      if(val===0) continue;
+      const x = c*cellSize + cellSize/2; const y = r*cellSize + cellSize/2;
+      if(fixed[r][c]){ ctx.fillStyle='#000'; ctx.font = `bold ${Math.floor(cellSize*0.55)}px sans-serif`; }
+      else { ctx.fillStyle='#0055aa'; ctx.font = `${Math.floor(cellSize*0.55)}px sans-serif`; }
+      ctx.fillText(val, x, y + 2);
+    }
+  }
+  for(let r=0;r<9;r++){
+    for(let c=0;c<9;c++){
+      const val = puzzleGrid[r][c];
+      if(val===0) continue;
+      if(!isValidPlacement(puzzleGrid,r,c,val)){
+        ctx.fillStyle='rgba(220,0,0,0.9)';
+        ctx.beginPath(); ctx.arc((c+1)*cellSize-8,(r)*cellSize+8,6,0,Math.PI*2); ctx.fill();
+      }
+    }
+  }
+  setTimeout(autoCheck, 0);
+}
+
+function onCanvasClick(e){
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+  const c = Math.floor(x/cellSize); const r = Math.floor(y/cellSize);
+  if(r>=0 && r<9 && c>=0 && c<9){
+    selected = {r,c}; draw();
+  } else {
+    selected = {r:-1,c:-1}; draw();
+  }
+}
+
+function onKeyDown(e){
+  if(selected.r===-1) return;
+  if(e.key>='1' && e.key<='9'){
+    const val = parseInt(e.key);
+    if(!fixed[selected.r][selected.c]){
+      puzzleGrid[selected.r][selected.c] = val; draw();
+    }
+  } else if(e.key==='Backspace' || e.key==='Delete' || e.key==='0'){
+    if(!fixed[selected.r][selected.c]){ puzzleGrid[selected.r][selected.c]=0; draw(); }
+  } else if(e.key==='ArrowUp'){ selected.r = (selected.r+8)%9; draw(); }
+  else if(e.key==='ArrowDown'){ selected.r = (selected.r+1)%9; draw(); }
+  else if(e.key==='ArrowLeft'){ selected.c = (selected.c+8)%9; draw(); }
+  else if(e.key==='ArrowRight'){ selected.c = (selected.c+1)%9; draw(); }
+}
+function isValidPlacement(grid,r,c,val){
+  if(val===0) return true;
+  for(let i=0;i<9;i++){
+    if(i!==c && grid[r][i]===val) return false;
+    if(i!==r && grid[i][c]===val) return false;
+  }
+  const br = Math.floor(r/3)*3, bc = Math.floor(c/3)*3;
+  for(let i=0;i<3;i++) for(let j=0;j<3;j++){
+    const rr = br+i, cc = bc+j;
+    if((rr!==r || cc!==c) && grid[rr][cc]===val) return false;
+  }
+  return true;
+}
+
+function giveHint(){
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    if(puzzleGrid[r][c]===0){ puzzleGrid[r][c]=solvedGrid[r][c]; draw(); statusEl.textContent='Hint placed.'; return; }
+  }
+  statusEl.textContent='No empty cells.';
+}
+
+function checkPuzzle(){
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    const v = puzzleGrid[r][c];
+    if(v===0) { statusEl.textContent = 'Puzzle not finished.'; return; }
+    if(!isValidPlacement(puzzleGrid,r,c,v)){ statusEl.textContent = `Wrong number at row ${r+1}, col ${c+1}.`; return; }
+  }
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    if(puzzleGrid[r][c] !== solvedGrid[r][c]){ statusEl.textContent='Wrong solution.'; return; }
+  }
+  statusEl.textContent='Congratulations — puzzle solved correctly!';
+}
+
+function showSolution(){
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++) puzzleGrid[r][c] = solvedGrid[r][c];
+  draw(); statusEl.textContent = 'Solution shown.';
+}
+function autoCheck(){
+// if no empty cells -> auto check
+for(let r=0;r<9;r++) for(let c=0;c<9;c++) if(puzzleGrid[r][c]===0) return;
+// perform check similar to checkPuzzle
+for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+const v = puzzleGrid[r][c];
+if(!isValidPlacement(puzzleGrid,r,c,v)){
+alert(`Wrong number at row ${r+1}, col ${c+1}.`);
+return;
+}
+if(puzzleGrid[r][c] !== solvedGrid[r][c]){
+alert('Wrong solution');
+return;
+}
+}
+alert('Congratulations! puzzle solved correctly!');
+}
+
+newPuzzle();
+
+</script>
+</body>
+</html>
